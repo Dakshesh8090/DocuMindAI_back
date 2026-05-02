@@ -1,11 +1,10 @@
-from langchain_pinecone import PineconeVectorStore
 from config import embeddings, index_name, client
 from google.genai import types
 import os
 from dotenv import load_dotenv
 from google import genai
 from langchain_huggingface import HuggingFaceEmbeddings  
-from langchain_pinecone import PineconeVectorStore
+from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 
 load_dotenv()
 
