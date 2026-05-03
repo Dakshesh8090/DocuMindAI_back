@@ -1,47 +1,59 @@
-from config import embeddings, index_name, client
-from google.genai import types
 import os
 from dotenv import load_dotenv
-from google import genai
-from langchain_huggingface import HuggingFaceEmbeddings  
+import google.generativeai as genai
+from config import embeddings, index_name
 from langchain_community.vectorstores import Pinecone as PineconeVectorStore
 
 load_dotenv()
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
-history = []
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-async def transform_query(question):
-    history.append({
-        "role": "user",
-        "parts": [{"text": question}]
-    })
+chat_histories = {}
 
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=history,
-        config=types.GenerateContentConfig(
-            system_instruction="You are a query rewriting expert. Based on the provided chat history , rephrase the follow up user question into a complete, standalone question that can be understood without any chat history. Only output the rewritten question and nothing else. If the question is already standalone, just repeat the question as it is."),
-    )
 
-    history.pop()
+def get_history(session_id):
+    if session_id not in chat_histories:
+        chat_histories[session_id] = []
+    return chat_histories[session_id]
+
+
+def format_history(history):
+    return "\n".join([
+        f"{msg['role']}: {msg['text']}"
+        for msg in history
+    ])
+
+
+def transform_query(session_id, question):
+    history = get_history(session_id)
+
+    history_text = format_history(history)
+
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    prompt = f"""
+        You are a query rewriting expert.
+        Rewrite the user question into a standalone question.
+
+        Chat History:
+        {history_text}
+
+        User Question:
+        {question}
+        """
+
+    response = model.generate_content(prompt)
     return response.text.strip()
 
-    #convert the user query into vector 
 
-vectorstore = PineconeVectorStore(
-    index_name="rag-index",
-    embedding=embeddings
-)
+def ask_question(session_id, question):
 
-retriever = vectorstore.as_retriever(
-    search_kwargs={"k": 6}
-)
+    history = get_history(session_id)
 
-async def ask_question(session_id, question):
+    # Step 1: rewrite query
+    rewritten_query = transform_query(session_id, question)
 
-    queries = await transform_query(question)
-
+    # Step 2: retrieve docs
     vectorstore = PineconeVectorStore(
         index_name=index_name,
         embedding=embeddings,
@@ -49,43 +61,26 @@ async def ask_question(session_id, question):
     )
 
     retriever = vectorstore.as_retriever(search_kwargs={"k": 6})
-
-    docs = retriever.invoke(queries)
-
-    print("\nRewritten Query:", queries)
-
-    print("\nRetrieved Docs:")
-    for doc in docs:
-        print(doc.page_content[:200])
+    docs = retriever.invoke(rewritten_query)
 
     context = "\n\n".join([doc.page_content for doc in docs])
 
+    # Step 3: final answer
     prompt = f"""
-    Answer ONLY using the context.
+        Answer ONLY using the context.
 
-    Context:
-    {context}
+        Context:
+        {context}
 
-    Question:
-    {question}
-    """
+        Question:
+        {rewritten_query}
+        """
 
+    model = genai.GenerativeModel("gemini-1.5-flash")
+    response = model.generate_content(prompt)
 
-    history.append({
-            "role": 'user',
-            "parts": [{"text": queries}]
-    })
-
-    response = client.models.generate_content(
-        model="gemini-3-flash-preview",
-        contents=prompt
-    )
-
-    history.append({
-            "role": 'model',
-            "parts": [{"text": response.text}]
-        })
-    
-    print("\nAnswer:", response.text)
+    # Step 4: store history properly
+    history.append({"role": "user", "text": question})
+    history.append({"role": "assistant", "text": response.text})
 
     return response.text

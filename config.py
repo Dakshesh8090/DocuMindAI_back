@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 from langchain_huggingface import HuggingFaceEmbeddings
 from pinecone import Pinecone
-from google import genai
+import google.generativeai as genai 
 
 load_dotenv()
 
@@ -14,4 +14,4 @@ index_name = "rag-index"
 
 pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
 
-client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
