@@ -23,3 +23,8 @@ async def upload(file : UploadFile = File(...)):
 async def query(data: dict): 
     answer = await ask_question(data["session_id"], data["question"]) 
     return {"answer": answer}
+
+
+@app.get("/")
+def home():
+    return {"message": "DocuMind AI Backend Running"}
